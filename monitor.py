@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import datetime
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urljoin, urlparse
 
 # --- CONFIGURAÇÃO ---
@@ -80,16 +80,12 @@ def crawl_site(url, profundidade_atual):
             print(f"  -> SUCESSO! Palavras encontradas: {', '.join(palavras_encontradas_pagina)}")
             paginas_com_achados.append({"url": url, "palavras": palavras_encontradas_pagina})
 
-        if not paginas_com_achados:
-            for link in soup.find_all('a', href=True):
-                href = link['href']
-                url_absoluta = urljoin(URL_BASE, href)
-                
-                if urlparse(url_absoluta).netloc == urlparse(URL_BASE).netloc:
-                    crawl_site(url_absoluta, profundidade_atual + 1)
-                
-                if paginas_com_achados:
-                    return
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            url_absoluta = urljoin(URL_BASE, href)
+            
+            if urlparse(url_absoluta).netloc == urlparse(URL_BASE).netloc:
+                crawl_site(url_absoluta, profundidade_atual + 1)
 
     except requests.exceptions.RequestException as e:
         print(f"  -> Erro ao acessar {url}: {e}")
@@ -103,7 +99,14 @@ def main():
     print(f"Iniciando verificação profunda do site: {URL_BASE}")
     crawl_site(URL_BASE, 1)
     
-    data_verificacao = datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    # *** AJUSTE DE FUSO HORÁRIO IMPLEMENTADO AQUI ***
+    # Define o fuso horário de São Paulo (GMT-3)
+    fuso_horario_sp = timezone(timedelta(hours=-3))
+    # Obtém a data e hora atuais já no fuso horário correto
+    agora_sp = datetime.now(fuso_horario_sp)
+    # Formata a data para o texto do e-mail
+    data_verificacao = agora_sp.strftime('%d/%m/%Y %H:%M:%S')
+    
     total_paginas = len(urls_visitadas)
 
     if paginas_com_achados:
