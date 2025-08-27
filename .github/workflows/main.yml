@@ -1,0 +1,45 @@
+# Nome do seu workflow de automação
+name: Monitoramento Diário do Site SAAESP
+
+# Gatilho (trigger) que inicia o workflow
+on:
+  # Permite rodar manualmente pela interface do GitHub
+  workflow_dispatch:
+  
+  # Agenda a execução usando a sintaxe cron
+  # Este exemplo roda todos os dias às 11:00 UTC (8:00 no horário de Brasília)
+  schedule:
+    - cron: '0 11 * * *'
+
+# Tarefas (jobs) a serem executadas
+jobs:
+  build:
+    # O tipo de máquina virtual para rodar o job
+    runs-on: ubuntu-latest
+
+    # Passos (steps) que compõem o job
+    steps:
+      # 1. Baixa o seu código do repositório para a máquina virtual
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. Configura o ambiente Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10' # Versão do Python
+
+      # 3. Instala as dependências (bibliotecas) listadas no requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 4. Executa o seu script de monitoramento
+      - name: Run website monitor script
+        # Passa os secrets configurados como variáveis de ambiente para o script
+        env:
+          REMETENTE_EMAIL: ${{ secrets.REMETENTE_EMAIL }}
+          SENHA_EMAIL: ${{ secrets.SENHA_EMAIL }}
+          DESTINATARIO_EMAIL: ${{ secrets.DESTINATARIO_EMAIL }}
+        run: python monitor.py
