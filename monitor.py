@@ -77,12 +77,14 @@ def crawl_site(url, profundidade_atual, driver):
     try:
         driver.get(url)
         
-        # --- MELHORIA: ESPERA EXPLÍCITA ---
-        # Espera até 10 segundos para o elemento <body> da página carregar.
-        # Isso é mais confiável do que um time.sleep() fixo.
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        # --- MELHORIA: ESPERA EXPLÍCITA AUMENTADA E MAIS INTELIGENTE ---
+        # Espera até 30 segundos por pelo menos um link (tag <a>) aparecer.
+        # Isso garante que o conteúdo dinâmico (links) foi carregado pelo JavaScript.
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.TAG_NAME, "a"))
         )
+        # Adicionamos uma pequena pausa extra para garantir a renderização completa de frameworks complexos.
+        time.sleep(2)
         
         html_content = driver.page_source
         soup = BeautifulSoup(html_content, 'html.parser')
