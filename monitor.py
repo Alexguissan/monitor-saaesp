@@ -7,19 +7,23 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urljoin, urlparse
+import time
+
+# --- NOVO: Importações do Selenium ---
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from webdriver_manager.chrome import ChromeDriverManager
+
 
 # --- CONFIGURAÇÃO ---
-# URL do site a ser monitorado
 URL_BASE = "http://www.saaesp.org.br/"
-
-# Palavras-chave que indicam a notícia de interesse.
 PALAVRAS_CHAVE = [
     "oposição", "carta de oposição", "prazo para oposição",
     "desconto sindical", "contribuição assistencial", "assembleia"
 ]
-
-# Profundidade máxima de navegação a partir da página inicial
-MAX_DEPTH = 5
+# Profundidade aumentada para 6
+MAX_DEPTH = 6
 
 # --- CONFIGURAÇÃO DO E-MAIL (lido das variáveis de ambiente/secrets) ---
 REMETENTE_EMAIL = os.environ.get('REMETENTE_EMAIL')
@@ -57,9 +61,9 @@ def enviar_email(titulo, corpo_html):
     except Exception as e:
         print(f"Falha ao enviar e-mail: {e}")
 
-def crawl_site(url, profundidade_atual):
+def crawl_site(url, profundidade_atual, driver):
     """
-    Função recursiva que navega pelo site (crawler).
+    Função recursiva que navega pelo site usando Selenium para renderizar JavaScript.
     """
     if profundidade_atual > MAX_DEPTH or url in urls_visitadas:
         return
@@ -68,27 +72,33 @@ def crawl_site(url, profundidade_atual):
     urls_visitadas.add(url)
 
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
+        # Selenium carrega a página e executa o JavaScript
+        driver.get(url)
+        # Uma pequena espera para garantir que os scripts rodem
+        time.sleep(3) 
+        
+        # Pega o HTML final, depois do JS
+        html_content = driver.page_source
+        soup = BeautifulSoup(html_content, 'html.parser')
         
         texto_do_site = soup.get_text().lower()
         palavras_encontradas_pagina = [palavra for palavra in PALAVRAS_CHAVE if palavra.lower() in texto_do_site]
         
         if palavras_encontradas_pagina:
-            print(f"  -> SUCESSO! Palavras encontradas: {', '.join(palavras_encontradas_pagina)}")
-            paginas_com_achados.append({"url": url, "palavras": palavras_encontradas_pagina})
+            palavras_str = ", ".join(palavras_encontradas_pagina)
+            print(f"  -> SUCESSO! Palavras encontradas: {palavras_str}")
+            # Adiciona na lista de achados, evitando duplicatas
+            if not any(d['url'] == url for d in paginas_com_achados):
+                paginas_com_achados.append({"url": url, "palavras": list(set(palavras_encontradas_pagina))})
 
         for link in soup.find_all('a', href=True):
             href = link['href']
             url_absoluta = urljoin(URL_BASE, href)
             
+            # Garante que estamos navegando apenas dentro do site original
             if urlparse(url_absoluta).netloc == urlparse(URL_BASE).netloc:
-                crawl_site(url_absoluta, profundidade_atual + 1)
+                crawl_site(url_absoluta, profundidade_atual + 1, driver)
 
-    except requests.exceptions.RequestException as e:
-        print(f"  -> Erro ao acessar {url}: {e}")
     except Exception as e:
         print(f"  -> Ocorreu um erro inesperado em {url}: {e}")
 
@@ -96,28 +106,32 @@ def main():
     """
     Função principal que inicia o processo e envia o relatório final.
     """
+    print("Configurando o navegador headless (Chrome)...")
+    chrome_options = ChromeOptions()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    # webdriver-manager instala e gerencia o driver do Chrome automaticamente
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
     print(f"Iniciando verificação profunda do site: {URL_BASE}")
-    crawl_site(URL_BASE, 1)
+    crawl_site(URL_BASE, 1, driver)
     
-    # *** AJUSTE DE FUSO HORÁRIO IMPLEMENTADO AQUI ***
-    # Define o fuso horário de São Paulo (GMT-3)
+    # Fecha o navegador ao final da verificação
+    driver.quit()
+    
     fuso_horario_sp = timezone(timedelta(hours=-3))
-    # Obtém a data e hora atuais já no fuso horário correto
     agora_sp = datetime.now(fuso_horario_sp)
-    # Formata a data para o texto do e-mail
     data_verificacao = agora_sp.strftime('%d/%m/%Y %H:%M:%S')
-    
     total_paginas = len(urls_visitadas)
 
+    # Lógica de e-mail (permanece a mesma)
     if paginas_com_achados:
         print("\n--- Relatório Final: Palavras-chave encontradas! ---")
         titulo_email = "ALERTA SAAESP: Informação sobre Carta de Oposição Encontrada!"
-        
-        links_html = ""
-        for achado in paginas_com_achados:
-            palavras_str = ", ".join(achado['palavras'])
-            links_html += f"<li>Na página <a href='{achado['url']}'>{achado['url']}</a> foram encontradas as palavras: <strong>{palavras_str}</strong></li>"
-
+        links_html = "".join([f"<li>Na página <a href='{achado['url']}'>{achado['url']}</a> foram encontradas as palavras: <strong>{', '.join(achado['palavras'])}</strong></li>" for achado in paginas_com_achados])
         corpo_html = f"""
         <html><body>
             <h2>Alerta de Monitoramento Automático</h2>
