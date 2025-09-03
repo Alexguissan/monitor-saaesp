@@ -13,6 +13,9 @@ import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 
@@ -72,12 +75,15 @@ def crawl_site(url, profundidade_atual, driver):
     urls_visitadas.add(url)
 
     try:
-        # Selenium carrega a página e executa o JavaScript
         driver.get(url)
-        # Uma pequena espera para garantir que os scripts rodem
-        time.sleep(3) 
         
-        # Pega o HTML final, depois do JS
+        # --- MELHORIA: ESPERA EXPLÍCITA ---
+        # Espera até 10 segundos para o elemento <body> da página carregar.
+        # Isso é mais confiável do que um time.sleep() fixo.
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.TAG_NAME, "body"))
+        )
+        
         html_content = driver.page_source
         soup = BeautifulSoup(html_content, 'html.parser')
         
@@ -87,15 +93,16 @@ def crawl_site(url, profundidade_atual, driver):
         if palavras_encontradas_pagina:
             palavras_str = ", ".join(palavras_encontradas_pagina)
             print(f"  -> SUCESSO! Palavras encontradas: {palavras_str}")
-            # Adiciona na lista de achados, evitando duplicatas
             if not any(d['url'] == url for d in paginas_com_achados):
                 paginas_com_achados.append({"url": url, "palavras": list(set(palavras_encontradas_pagina))})
 
-        for link in soup.find_all('a', href=True):
+        links = soup.find_all('a', href=True)
+        print(f"  -> Encontrados {len(links)} links na página.") # Linha de Debug
+
+        for link in links:
             href = link['href']
             url_absoluta = urljoin(URL_BASE, href)
             
-            # Garante que estamos navegando apenas dentro do site original
             if urlparse(url_absoluta).netloc == urlparse(URL_BASE).netloc:
                 crawl_site(url_absoluta, profundidade_atual + 1, driver)
 
@@ -112,14 +119,12 @@ def main():
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     
-    # webdriver-manager instala e gerencia o driver do Chrome automaticamente
     service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
     
     print(f"Iniciando verificação profunda do site: {URL_BASE}")
     crawl_site(URL_BASE, 1, driver)
     
-    # Fecha o navegador ao final da verificação
     driver.quit()
     
     fuso_horario_sp = timezone(timedelta(hours=-3))
@@ -127,7 +132,6 @@ def main():
     data_verificacao = agora_sp.strftime('%d/%m/%Y %H:%M:%S')
     total_paginas = len(urls_visitadas)
 
-    # Lógica de e-mail (permanece a mesma)
     if paginas_com_achados:
         print("\n--- Relatório Final: Palavras-chave encontradas! ---")
         titulo_email = "ALERTA SAAESP: Informação sobre Carta de Oposição Encontrada!"
@@ -164,3 +168,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
